@@ -1,0 +1,28 @@
+name: qr_saas_dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: qr_postgres
+    restart: unless-stopped
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_DB: qr_saas
+      POSTGRES_USER: qr_user
+      POSTGRES_PASSWORD: qr_secret_local
+    volumes:
+      - qr_pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: qr_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - qr_redisdata:/data
+
+volumes:
+  qr_pgdata:
+  qr_redisdata:

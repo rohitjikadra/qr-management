@@ -1,0 +1,172 @@
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from '@/components/ui/dialog';
+import AppLayout from '@/layouts/app-layout';
+import { type BreadcrumbItem } from '@/types';
+import { Head, Link, router } from '@inertiajs/react';
+import { CreditCard, Info } from 'lucide-react';
+
+interface Props {
+    plan: { name: string; slug: string; is_free: boolean };
+    subscription: {
+        status: string;
+        plan_name: string;
+        starts_at: string | null;
+        expires_at: string | null;
+        cancelled_at: string | null;
+    } | null;
+    payments: {
+        id: number;
+        invoice_number: string | null;
+        amount: number;
+        currency: string;
+        status: string;
+        paid_at: string | null;
+    }[];
+    razorpayConfigured: boolean;
+}
+
+const breadcrumbs: BreadcrumbItem[] = [{ title: 'Billing', href: '/billing' }];
+
+const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+    active: 'default',
+    pending: 'secondary',
+    grace: 'destructive',
+    frozen: 'destructive',
+    cancelled: 'outline',
+    expired: 'outline',
+};
+
+export default function Billing({ plan, subscription, payments, razorpayConfigured }: Props) {
+    const canCancel = subscription && ['active', 'grace'].includes(subscription.status);
+
+    return (
+        <AppLayout breadcrumbs={breadcrumbs}>
+            <Head title="Billing" />
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
+                <h1 className="text-xl font-semibold">Billing</h1>
+
+                {!razorpayConfigured && (
+                    <Alert>
+                        <Info className="size-4" />
+                        <AlertDescription>Payments are not configured yet (test environment).</AlertDescription>
+                    </Alert>
+                )}
+
+                {subscription?.status === 'grace' && (
+                    <Alert variant="destructive">
+                        <Info className="size-4" />
+                        <AlertDescription>
+                            Your payment is overdue. Your Pro features will be locked after the grace period — your QR codes will
+                            keep working either way.
+                        </AlertDescription>
+                    </Alert>
+                )}
+
+                {subscription?.status === 'frozen' && (
+                    <Alert variant="destructive">
+                        <Info className="size-4" />
+                        <AlertDescription>
+                            Your subscription is frozen. Dynamic QRs beyond the free limit are locked (still scannable). Re-subscribe
+                            to unlock everything.
+                        </AlertDescription>
+                    </Alert>
+                )}
+
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between">
+                        <CardTitle className="flex items-center gap-2 text-base">
+                            <CreditCard className="size-4" /> Current Plan
+                        </CardTitle>
+                        {subscription && (
+                            <Badge variant={statusVariant[subscription.status] ?? 'secondary'}>{subscription.status}</Badge>
+                        )}
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-3">
+                        <div className="flex items-baseline justify-between">
+                            <p className="text-2xl font-semibold">{plan.name}</p>
+                            {plan.is_free ? (
+                                <Button asChild>
+                                    <Link href="/pricing">Upgrade to Pro</Link>
+                                </Button>
+                            ) : (
+                                canCancel && (
+                                    <Dialog>
+                                        <DialogTrigger asChild>
+                                            <Button variant="outline">Cancel subscription</Button>
+                                        </DialogTrigger>
+                                        <DialogContent>
+                                            <DialogHeader>
+                                                <DialogTitle>Cancel your subscription?</DialogTitle>
+                                                <DialogDescription>
+                                                    You'll keep Pro access until {subscription?.expires_at ?? 'the end of the billing period'}.
+                                                    After that, dynamic QRs beyond the free limit will be locked — but every QR keeps
+                                                    scanning and redirecting.
+                                                </DialogDescription>
+                                            </DialogHeader>
+                                            <DialogFooter>
+                                                <Button variant="destructive" onClick={() => router.post('/billing/cancel')}>
+                                                    Yes, cancel
+                                                </Button>
+                                            </DialogFooter>
+                                        </DialogContent>
+                                    </Dialog>
+                                )
+                            )}
+                        </div>
+                        {subscription && (
+                            <div className="text-muted-foreground grid grid-cols-2 gap-2 text-sm">
+                                {subscription.starts_at && <span>Started: {subscription.starts_at}</span>}
+                                {subscription.expires_at && (
+                                    <span>
+                                        {subscription.status === 'cancelled' ? 'Access until' : 'Renews'}: {subscription.expires_at}
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-base">Payment History</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        {payments.length === 0 ? (
+                            <p className="text-muted-foreground py-4 text-center text-sm">No payments yet.</p>
+                        ) : (
+                            <div className="flex flex-col divide-y text-sm">
+                                {payments.map((p) => (
+                                    <div key={p.id} className="flex items-center justify-between py-2.5">
+                                        <div>
+                                            <p className="font-medium">{p.invoice_number ?? '—'}</p>
+                                            <p className="text-muted-foreground text-xs">{p.paid_at ?? 'Pending'}</p>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <Badge variant={p.status === 'paid' ? 'default' : p.status === 'failed' ? 'destructive' : 'secondary'}>
+                                                {p.status}
+                                            </Badge>
+                                            <span className="font-medium">
+                                                ₹{p.amount.toLocaleString('en-IN')}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
+        </AppLayout>
+    );
+}
