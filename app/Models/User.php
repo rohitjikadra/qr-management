@@ -21,7 +21,13 @@ class User extends Authenticatable implements MustVerifyEmail
         'name',
         'email',
         'password',
+        'email_verified_at',
+        'role',
+        'status',
         'country',
+        'last_login_at',
+        'billing_discount_percent',
+        'billing_note',
     ];
 
     protected $hidden = [
@@ -37,6 +43,7 @@ class User extends Authenticatable implements MustVerifyEmail
             'password' => 'hashed',
             'role' => UserRole::class,
             'status' => UserStatus::class,
+            'billing_discount_percent' => 'integer',
         ];
     }
 
@@ -64,11 +71,27 @@ class User extends Authenticatable implements MustVerifyEmail
 
     public function isAdmin(): bool
     {
-        return $this->role->isAdmin();
+        return $this->role?->isAdmin() ?? false;
     }
 
     public function isBanned(): bool
     {
         return $this->status === UserStatus::Banned;
+    }
+
+    public function discountedPriceFor(Plan $plan): float
+    {
+        $price = (float) $plan->price;
+
+        if (! $this->billing_discount_percent) {
+            return $price;
+        }
+
+        return round($price * (100 - $this->billing_discount_percent) / 100, 2);
+    }
+
+    public function hasBillingDiscount(): bool
+    {
+        return ($this->billing_discount_percent ?? 0) > 0;
     }
 }

@@ -4,11 +4,13 @@ import { FormEventHandler } from 'react';
 
 import InputError from '@/components/input-error';
 import TextLink from '@/components/text-link';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import AuthLayout from '@/layouts/auth-layout';
+import { Ban } from 'lucide-react';
 
 interface LoginForm {
     email: string;
@@ -35,9 +37,19 @@ export default function Login({ status, canResetPassword }: LoginProps) {
         });
     };
 
+    const suspendedMessage = errors.email?.includes('suspended') ? errors.email : null;
+
     return (
         <AuthLayout title="Log in to your account" description="Enter your email and password below to log in">
             <Head title="Log in" />
+
+            {suspendedMessage && (
+                <Alert variant="destructive" className="mb-4">
+                    <Ban className="size-4" />
+                    <AlertTitle>Account suspended</AlertTitle>
+                    <AlertDescription>{suspendedMessage}</AlertDescription>
+                </Alert>
+            )}
 
             <form className="flex flex-col gap-6" onSubmit={submit}>
                 <div className="grid gap-6">
@@ -54,7 +66,7 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                             onChange={(e) => setData('email', e.target.value)}
                             placeholder="email@example.com"
                         />
-                        <InputError message={errors.email} />
+                        <InputError message={suspendedMessage ? undefined : errors.email} />
                     </div>
 
                     <div className="grid gap-2">

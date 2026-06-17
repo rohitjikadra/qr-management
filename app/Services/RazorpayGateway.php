@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Plan;
+use App\Models\Subscription;
 use App\Models\User;
 use Razorpay\Api\Api;
 use RuntimeException;
@@ -39,7 +40,26 @@ class RazorpayGateway
     }
 
     /**
-     * Create a Razorpay subscription and return its id.
+     * Create a one-time Razorpay order for manual renewal checkout.
+     */
+    public function createOrder(Plan $plan, User $user, int $amountPaise, Subscription $subscription): string
+    {
+        $order = $this->api()->order->create([
+            'receipt' => 'sub_'.$subscription->id.'_'.now()->timestamp,
+            'amount' => $amountPaise,
+            'currency' => $plan->currency,
+            'notes' => [
+                'user_id' => (string) $user->id,
+                'plan_slug' => $plan->slug,
+                'subscription_id' => (string) $subscription->id,
+            ],
+        ]);
+
+        return $order->id;
+    }
+
+    /**
+     * Create a Razorpay subscription and return its id (autopay mode).
      */
     public function createSubscription(Plan $plan, User $user): string
     {

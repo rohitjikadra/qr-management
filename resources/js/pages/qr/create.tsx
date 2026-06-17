@@ -1,4 +1,5 @@
 import InputError from '@/components/input-error';
+import { EmailVerificationRequiredAlert } from '@/components/email-verification-required-alert';
 import QrContentForm from '@/components/qr/qr-content-form';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -50,11 +51,20 @@ export default function QrCreate({ limits }: Props) {
         setStep(2);
     };
 
-    const dynamicBlocked = !limits.email_verified
-        ? 'Verify your email to unlock dynamic QR codes.'
-        : !limits.can_create_dynamic
-          ? `Free plan allows ${limits.dynamic_limit} dynamic QRs (${limits.dynamic_count} used). Upgrade to Pro for unlimited.`
-          : null;
+    const dynamicBlocked = !limits.can_create_dynamic
+        ? `Free plan allows ${limits.dynamic_limit} dynamic QRs (${limits.dynamic_count} used). Upgrade to Pro for unlimited.`
+        : null;
+
+    if (!limits.email_verified) {
+        return (
+            <AppLayout breadcrumbs={breadcrumbs}>
+                <Head title="Create QR Code" />
+                <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
+                    <EmailVerificationRequiredAlert />
+                </div>
+            </AppLayout>
+        );
+    }
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>

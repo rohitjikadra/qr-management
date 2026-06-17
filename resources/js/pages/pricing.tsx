@@ -1,17 +1,20 @@
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import AppLayout from '@/layouts/app-layout';
+import MarketingLayout from '@/layouts/marketing-layout';
 import { openRazorpayCheckout, type CheckoutData } from '@/lib/razorpay';
-import { type BreadcrumbItem, type SharedData } from '@/types';
+import { type SharedData } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
-import { Check, LoaderCircle, X } from 'lucide-react';
+import { Check, Info, LoaderCircle, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 interface PlanCard {
     slug: string;
     name: string;
     price: number;
+    discounted_price?: number;
+    has_discount?: boolean;
     currency: string;
     billing_cycle: 'free' | 'monthly' | 'yearly';
     limits: Record<string, number | boolean>;
@@ -20,9 +23,11 @@ interface PlanCard {
 interface Props {
     plans: PlanCard[];
     currentPlan: string | null;
+    billing_discount_percent: number | null;
+    payments_enabled: boolean;
+    payments_disabled_message: string;
+    billing_mode: string;
 }
-
-const breadcrumbs: BreadcrumbItem[] = [{ title: 'Pricing', href: '/pricing' }];
 
 function featureList(limits: Record<string, number | boolean>): { label: string; included: boolean }[] {
     const dynamicQr = Number(limits.dynamic_qr);
@@ -40,8 +45,15 @@ function featureList(limits: Record<string, number | boolean>): { label: string;
     ];
 }
 
-export default function Pricing({ plans, currentPlan }: Props) {
-    const { auth, flash } = usePage<SharedData & { flash: { checkout?: CheckoutData } }>().props;
+export default function Pricing({
+    plans,
+    currentPlan,
+    billing_discount_percent: pageDiscount,
+    payments_enabled,
+    payments_disabled_message,
+}: Props) {
+    const { auth, flash, billing_discount_percent: sharedDiscount } = usePage<SharedData & { flash: { checkout?: CheckoutData } }>().props;
+    const billingDiscount = pageDiscount ?? sharedDiscount ?? auth.user?.billing_discount_percent ?? null;
     const [processing, setProcessing] = useState<string | null>(null);
 
     useEffect(() => {
@@ -56,19 +68,38 @@ export default function Pricing({ plans, currentPlan }: Props) {
         router.post('/billing/subscribe', { plan: slug }, { onError: () => setProcessing(null) });
     };
 
+    const checkoutDisabled = !payments_enabled;
+
     return (
-        <AppLayout breadcrumbs={breadcrumbs}>
+        <MarketingLayout>
             <Head title="Pricing" />
-            <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4">
+            <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-12">
                 <div className="text-center">
                     <h1 className="text-2xl font-semibold">Simple, transparent pricing</h1>
                     <p className="text-muted-foreground mt-1">Start free. Upgrade when your QRs take off.</p>
                 </div>
 
+                {checkoutDisabled && (
+                    <Alert>
+                        <Info className="size-4" />
+                        <AlertDescription>{payments_disabled_message}</AlertDescription>
+                    </Alert>
+                )}
+
+                {billingDiscount && billingDiscount > 0 && (
+                    <Alert>
+                        <Info className="size-4" />
+                        <AlertDescription>
+                            Your account has a {billingDiscount}% discount on paid plans (prices below).
+                        </AlertDescription>
+                    </Alert>
+                )}
+
                 <div className="grid gap-4 md:grid-cols-3">
                     {plans.map((plan) => {
                         const isCurrent = currentPlan === plan.slug;
                         const isYearly = plan.billing_cycle === 'yearly';
+                        const isPaid = plan.billing_cycle !== 'free';
 
                         return (
                             <Card key={plan.slug} className={isYearly ? 'border-primary relative' : ''}>
@@ -79,8 +110,15 @@ export default function Pricing({ plans, currentPlan }: Props) {
                                     <CardTitle className="text-lg">{plan.name}</CardTitle>
                                     <div>
                                         <span className="text-3xl font-bold">
-                                            {plan.price === 0 ? 'Free' : `₹${plan.price.toLocaleString('en-IN')}`}
+                                            {plan.price === 0
+                                                ? 'Free'
+                                                : `₹${(plan.has_discount ? plan.discounted_price! : plan.price).toLocaleString('en-IN')}`}
                                         </span>
+                                        {plan.has_discount && plan.price > 0 && (
+                                            <span className="text-muted-foreground ml-2 text-sm line-through">
+                                                ₹{plan.price.toLocaleString('en-IN')}
+                                            </span>
+                                        )}
                                         {plan.price > 0 && (
                                             <span className="text-muted-foreground text-sm">
                                                 /{isYearly ? 'year' : 'month'}
@@ -123,9 +161,12 @@ export default function Pricing({ plans, currentPlan }: Props) {
                                             <Link href="/register">Start with Pro</Link>
                                         </Button>
                                     ) : (
-                                        <Button onClick={() => subscribe(plan.slug)} disabled={processing !== null}>
+                                        <Button
+                                            onClick={() => subscribe(plan.slug)}
+                                            disabled={processing !== null || checkoutDisabled}
+                                        >
                                             {processing === plan.slug && <LoaderCircle className="size-4 animate-spin" />}
-                                            Upgrade to {plan.name}
+                                            {isPaid ? 'Buy Pro' : `Upgrade to ${plan.name}`}
                                         </Button>
                                     )}
                                 </CardContent>
@@ -135,9 +176,10 @@ export default function Pricing({ plans, currentPlan }: Props) {
                 </div>
 
                 <p className="text-muted-foreground text-center text-xs">
-                    Payments are processed securely by Razorpay (UPI Autopay & cards). 7-day no-questions refund policy.
+                    Payments are processed securely by Razorpay (UPI & cards). Manual renewal — pay each period, no autopay.
+                    7-day no-questions refund policy.
                 </p>
             </div>
-        </AppLayout>
+        </MarketingLayout>
     );
 }

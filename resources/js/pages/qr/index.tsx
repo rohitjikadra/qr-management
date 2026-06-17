@@ -1,6 +1,7 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { EmailVerificationRequiredAlert } from '@/components/email-verification-required-alert';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
@@ -32,13 +33,14 @@ interface Pagination<T> {
 interface Props {
     qrCodes: Pagination<QrListItem>;
     filters: { search?: string; type?: string; status?: string };
+    email_verified: boolean;
 }
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'QR Codes', href: '/qr' }];
 
 const ALL = '__all';
 
-export default function QrIndex({ qrCodes, filters }: Props) {
+export default function QrIndex({ qrCodes, filters, email_verified }: Props) {
     const [search, setSearch] = useState(filters.search ?? '');
 
     const applyFilters = (next: Record<string, string>) => {
@@ -56,13 +58,21 @@ export default function QrIndex({ qrCodes, filters }: Props) {
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="QR Codes" />
             <div className="flex h-full flex-1 flex-col gap-4 p-4">
+                {!email_verified && <EmailVerificationRequiredAlert />}
+
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <h1 className="text-xl font-semibold">My QR Codes</h1>
-                    <Button asChild>
-                        <Link href="/qr/create">
-                            <Plus className="size-4" /> Create QR
-                        </Link>
-                    </Button>
+                    {email_verified ? (
+                        <Button asChild>
+                            <Link href="/qr/create">
+                                <Plus className="size-4" /> Create QR
+                            </Link>
+                        </Button>
+                    ) : (
+                        <Button asChild variant="outline">
+                            <Link href="/verify-email">Verify email to create QR</Link>
+                        </Button>
+                    )}
                 </div>
 
                 <div className="flex flex-wrap gap-2">
@@ -106,11 +116,17 @@ export default function QrIndex({ qrCodes, filters }: Props) {
                             <QrCodeIcon className="text-muted-foreground size-12" />
                             <p className="text-lg font-medium">No QR codes yet</p>
                             <p className="text-muted-foreground text-sm">Create your first QR code and start sharing.</p>
-                            <Button asChild>
-                                <Link href="/qr/create">
-                                    <Plus className="size-4" /> Create your first QR
-                                </Link>
-                            </Button>
+                            {email_verified ? (
+                                <Button asChild>
+                                    <Link href="/qr/create">
+                                        <Plus className="size-4" /> Create your first QR
+                                    </Link>
+                                </Button>
+                            ) : (
+                                <Button asChild variant="outline">
+                                    <Link href="/verify-email">Verify email to create QR</Link>
+                                </Button>
+                            )}
                         </CardContent>
                     </Card>
                 ) : (

@@ -2,6 +2,9 @@
 
 namespace App\Jobs;
 
+use App\Enums\RenewalType;
+use App\Mail\PaymentFailedMail;
+use App\Mail\PaymentSuccessMail;
 use App\Models\AuditLog;
 use App\Models\Payment;
 use App\Models\Subscription;
@@ -10,6 +13,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class ProcessRazorpayWebhookJob implements ShouldQueue
 {
@@ -27,6 +31,22 @@ class ProcessRazorpayWebhookJob implements ShouldQueue
 
         $subscriptionData = Arr::get($this->payload, 'payload.subscription.entity', []);
         $paymentData = Arr::get($this->payload, 'payload.payment.entity', []);
+
+        if ($event === 'payment.captured') {
+            $this->onPaymentCaptured($paymentData, $subscriptions);
+
+            return;
+        }
+
+        if ($event === 'payment.failed' && ($paymentData['order_id'] ?? null)) {
+            $subscription = $this->resolveSubscriptionForOrderPayment($paymentData);
+
+            if ($subscription && $subscription->renewal_type !== RenewalType::Autopay) {
+                $this->onPaymentFailed($subscription, $paymentData);
+
+                return;
+            }
+        }
 
         $gatewaySubscriptionId = $subscriptionData['id']
             ?? $paymentData['subscription_id']
@@ -53,6 +73,51 @@ class ProcessRazorpayWebhookJob implements ShouldQueue
         };
     }
 
+    private function onPaymentCaptured(array $paymentData, SubscriptionService $subscriptions): void
+    {
+        if (($paymentData['id'] ?? null) === null) {
+            return;
+        }
+
+        $subscription = $this->resolveSubscriptionForOrderPayment($paymentData);
+
+        if (! $subscription) {
+            Log::info('payment.captured for unknown order', ['order_id' => $paymentData['order_id'] ?? null]);
+
+            return;
+        }
+
+        if ($subscription->renewal_type === RenewalType::Autopay) {
+            return;
+        }
+
+        $payment = $subscriptions->fulfillManualOrderPayment($subscription, $paymentData);
+        AuditLog::record('payment.recorded', $subscription, ['payment_id' => $paymentData['id'] ?? null], $subscription->user_id);
+
+        Mail::to($subscription->user)->send(new PaymentSuccessMail($subscription->user, $payment));
+    }
+
+    private function resolveSubscriptionForOrderPayment(array $paymentData): ?Subscription
+    {
+        $orderId = $paymentData['order_id'] ?? null;
+
+        if ($orderId) {
+            $byOrder = Subscription::where('gateway_subscription_id', $orderId)->first();
+
+            if ($byOrder) {
+                return $byOrder;
+            }
+        }
+
+        $subscriptionId = $paymentData['notes']['subscription_id'] ?? null;
+
+        if ($subscriptionId) {
+            return Subscription::find($subscriptionId);
+        }
+
+        return null;
+    }
+
     private function onActivated(Subscription $subscription, SubscriptionService $subscriptions): void
     {
         $subscriptions->activate($subscription);
@@ -65,8 +130,14 @@ class ProcessRazorpayWebhookJob implements ShouldQueue
             return;
         }
 
-        $subscriptions->recordCharge($subscription, $paymentData);
+        if ($subscription->renewal_type === RenewalType::Manual) {
+            return;
+        }
+
+        $payment = $subscriptions->recordCharge($subscription, $paymentData);
         AuditLog::record('payment.recorded', $subscription, ['payment_id' => $paymentData['id'] ?? null], $subscription->user_id);
+
+        Mail::to($subscription->user)->send(new PaymentSuccessMail($subscription->user, $payment));
     }
 
     private function onPaymentFailed(Subscription $subscription, array $paymentData): void
@@ -89,5 +160,7 @@ class ProcessRazorpayWebhookJob implements ShouldQueue
         );
 
         AuditLog::record('payment.failed', $subscription, userId: $subscription->user_id);
+
+        Mail::to($subscription->user)->send(new PaymentFailedMail($subscription->user));
     }
 }

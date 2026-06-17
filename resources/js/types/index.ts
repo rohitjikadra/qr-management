@@ -2,6 +2,7 @@ import { LucideIcon } from 'lucide-react';
 
 export interface Auth {
     user: User;
+    is_super_admin?: boolean;
 }
 
 export interface BreadcrumbItem {
@@ -23,8 +24,14 @@ export interface NavItem {
 
 export interface SharedData {
     name: string;
+    branding?: {
+        logo_url: string | null;
+        favicon_url: string | null;
+    };
     quote: { message: string; author: string };
     auth: Auth;
+    billing_discount_percent?: number | null;
+    impersonation?: { admin_id: number; admin_name: string } | null;
     [key: string]: unknown;
 }
 
@@ -34,6 +41,7 @@ export interface User {
     email: string;
     avatar?: string;
     email_verified_at: string | null;
+    billing_discount_percent?: number | null;
     created_at: string;
     updated_at: string;
     [key: string]: unknown; // This allows for additional properties...

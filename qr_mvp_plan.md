@@ -2,7 +2,7 @@
 
 Version: 1.0
 Based on: qr_business.md V1.2
-Stack: Laravel 12 + Inertia.js + React + TypeScript + Tailwind + shadcn/ui + Filament + PostgreSQL + Redis
+Stack: Laravel 12 + Inertia.js + React + TypeScript + Tailwind + shadcn/ui + PostgreSQL + Redis
 
 ---
 
@@ -18,7 +18,7 @@ In scope:
 * Redirect service (/q/{slug}) with Redis cache + async scan logging
 * Basic analytics (total scans, daily scans, timeline)
 * Billing (Free, Pro Monthly, Pro Yearly via Razorpay Subscriptions)
-* Admin panel (Filament)
+* Admin panel (Custom React at `/admin/*`)
 * Abuse prevention basics
 * Transactional emails
 
@@ -40,15 +40,15 @@ NOT in scope (Phase 2+):
 * [x] Install React + TypeScript + Vite
 * [x] Install Tailwind CSS
 * [x] Install shadcn/ui (init + base components: button, input, card, dialog, dropdown, table, tabs, badge, toast)
-* [ ] Install Filament v4 (admin panel at /admin) — Week 5
+* [x] Custom React admin panel at `/admin/*` (replaced Filament, June 2026) — Week 5 ✅
 * [ ] Install Laravel Horizon (queue monitoring) OR simple queue:work
 * [ ] Install packages:
   * [x] endroid/qr-code v6 (QR generation — PNG + SVG)
   * [x] predis/predis (Redis client)
   * [x] qrcode.react (frontend live preview)
-  * [ ] razorpay/razorpay (official SDK) — Week 4
-  * [ ] jenssegers/agent (device/browser parsing) — Week 3
-  * [ ] GeoIP: MaxMind GeoLite2 (free DB) — Week 3
+  * [x] razorpay/razorpay (official SDK) — Week 4
+  * [x] jenssegers/agent (device/browser parsing) — Week 3
+  * [x] GeoIP: MaxMind GeoLite2 (free DB) — Week 3 (graceful skip if DB missing)
 * [x] Configure PostgreSQL connection (Docker container, port 5434 — native PG password mismatch)
 * [x] Configure Redis (cache + queue + session) (Docker container, port 6379)
 * [ ] Configure mail (SMTP — start with Brevo/Mailgun free tier) — currently log driver
@@ -581,7 +581,7 @@ Pages:
 ### G5. Subscription Lifecycle (scheduled job, daily 01:00) ✅
 
 * [x] expires_at passed + not renewed → status=grace (email — Week 5)
-* [ ] Grace day 3, day 7 reminder emails — Week 5
+* [x] Grace day 3, day 7 reminder emails — Week 5
 * [x] Grace over (7 days) → status=frozen:
   * [x] Redirects KEEP WORKING (tested)
   * [x] Editing locked (QrCodePolicy blocks frozen QRs)
@@ -594,55 +594,104 @@ Pages:
 
 ---
 
-## MODULE H — Admin Panel (Filament, /admin)
+## MODULE H — Admin Panel (Custom React, `/admin/*`)
 
-Access: role = admin or super_admin (Filament gate)
+Access: role = `admin` or `super_admin` (`EnsureAdmin` middleware + `AdminUserPolicy`)  
+Login: `/login` → admins redirect to `/admin/dashboard`  
+**Overall admin module: complete** (custom React admin, Filament removed June 2026)
+
+### H0. Admin Audit Status (June 2026)
+
+**Working (verified via tests + code review):**
+
+* [x] Access control: regular user → 403; banned admin → 403
+* [x] All admin pages load via Inertia: Dashboard, Users, QR Codes, QR Reports, Plans, Subscriptions, Payments, Blocked Domains, Settings, Branding, Audit Logs
+* [x] Same stack as user app (Laravel + Inertia + React + shadcn/ui)
+* [x] `/admin` redirects to `/admin/dashboard`
+* [x] Filament package removed — no Livewire/Filament assets
 
 ### H1. Dashboard Widgets
 
-* [ ] Total Users / Active (30d) / Paid Users
-* [ ] MRR (sum active subscription monthly value)
-* [ ] Revenue this month + growth % vs last month
-* [ ] Total QR codes / Total scans
-* [ ] QR type distribution chart
-* [ ] New signups chart (30 days)
+* [x] Total Users / Active (30d) / Paid Users
+* [x] MRR (sum active subscription monthly value)
+* [x] Revenue this month + growth % vs last month
+* [x] Total QR codes / Total scans
+* [x] QR type distribution chart (Recharts)
+* [x] New signups chart (30 days)
 
-### H2. User Management (Resource)
+### H2. User Management
 
-* [ ] List: name, email, role, status, plan, QR count, registered date
-* [ ] Search + filters (role, status, plan)
-* [ ] View user detail: QRs, subscriptions, payments, audit trail
-* [ ] Actions: ban/unban, resend verification, impersonate (super_admin only — login-as with audit log)
-* [ ] Edit role (super_admin only)
+* [x] List: name, email, role, status, QR count, registered date
+* [x] Search + filters (role, status)
+* [x] View user detail with 360° tabs (Overview | QR Codes | Subscriptions | Payments)
+* [x] Actions: ban/unban, resend verification, impersonate (super_admin)
+* [x] Edit role restricted via `AdminUserPolicy` (super_admin only)
+* [x] CSV export
 
-### H3. QR Management (Resource)
+### H3. QR Management
 
-* [ ] List all QRs: owner, name, type, status, scans, flags
-* [ ] Filters: type, status, dynamic, reported
-* [ ] Actions: pause (admin override), view content/destination
-* [ ] Admin-paused QR → user cannot reactivate (admin_locked flag)
+* [x] List all QRs: owner, name, type, status, scans
+* [x] Filters: type, status
+* [x] Actions: pause (admin override), view content/destination
+* [x] Admin-paused QR → user cannot reactivate (`admin_locked` flag)
 
 ### H4. Subscription & Payment Management
 
-* [ ] Subscriptions list: user, plan, status, dates
-* [ ] Payments list: searchable by gateway id, status filter
-* [ ] Manual actions: extend subscription, mark refunded
+* [x] Subscriptions list: user, plan, status, dates
+* [x] Payments list: searchable, status filter
+* [x] Admin complimentary access — grant / extend / revoke
+* [x] Per-user billing discount % (pricing + billing page display)
+* [x] Mark payment refunded (local placeholder)
+* [x] CSV export (payments)
 
 ### H5. Plan Management
 
-* [ ] Edit plan price, limits JSON (with key-value form UI), is_active
-* [ ] Warning: limit changes affect users immediately
+* [x] Edit plan price, limits JSON, is_active
+* [ ] Warning: limit changes affect users immediately (nice-to-have confirm dialog)
 
 ### H6. Abuse Queue
 
-* [ ] qr_reports list: pending first
-* [ ] Actions: dismiss, pause QR, ban user
-* [ ] blocked_domains CRUD
+* [x] qr_reports list: pending badge + actions
+* [x] Actions: dismiss, pause QR, ban user
+* [x] blocked_domains CRUD
 
 ### H7. Settings & Audit
 
-* [ ] settings key-value editor (super_admin)
-* [ ] audit_logs viewer (read-only, filterable)
+* [x] settings key-value editor
+* [x] branding/SEO settings page
+* [x] audit_logs viewer (read-only)
+
+---
+
+### H8. Admin — Remaining / Post-MVP
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | Plan limit change warning | Low | Confirm dialog when saving plan limits |
+| 2 | Razorpay refund API sync | Medium | Local mark-refunded exists; wire Razorpay when needed |
+| 3 | MRR / revenue trend chart (6–12 months) | Low | Post-launch analytics |
+| 4 | Admin email alerts (abuse spike, payment failures) | Low | Ops automation |
+| 5 | Bulk actions (ban users, pause QRs) | Low | Post-MVP |
+
+**Already read-only by design (OK for MVP):**
+
+* Subscriptions: no arbitrary create/delete from admin UI
+* Payments: no create
+* Plans: no create/delete (seeded plans only)
+* Audit logs: read-only
+
+---
+
+### H9. Admin — Extra Features Roadmap (post-MVP)
+
+* [ ] MRR / revenue trend chart (6–12 months)
+* [ ] Churn + failed payments widget
+* [ ] Top scanned QRs leaderboard
+* [ ] Razorpay webhook event log viewer
+* [ ] Bulk actions: ban users, pause QRs
+* [ ] Admin activity log (which admin did what — beyond audit_logs)
+* [ ] Revenue by plan breakdown
+* [ ] Subscription renewal calendar view
 
 ---
 
@@ -669,11 +718,11 @@ All queued. Branded simple template (logo + content + footer).
 * [ ] Welcome + verify email (register)
 * [ ] Password reset
 * [ ] Email changed verification
-* [ ] Payment success (with invoice details)
-* [ ] Payment failed
+* [x] Payment success (with invoice details)
+* [x] Payment failed
 * [ ] Subscription activated
 * [ ] Renewal upcoming (3 days before charge)
-* [ ] Grace period day 1 / 3 / 7
+* [x] Grace period day 1 / 3 / 7
 * [ ] Subscription frozen
 * [ ] QR auto-paused (abuse) — to owner
 * [ ] Admin alert: abuse reports threshold
@@ -682,11 +731,11 @@ All queued. Branded simple template (logo + content + footer).
 
 ## MODULE K — Public Pages (same Laravel app)
 
-* [ ] Landing page: hero, features, how it works, pricing preview, FAQ, footer
-* [ ] /pricing (shared with Module G)
-* [ ] Terms of Service, Privacy Policy, Refund Policy (static)
-* [ ] QR inactive/not-found/expired branded pages (Module E)
-* [ ] SEO: meta tags, OG tags, sitemap.xml, robots.txt
+* [x] Landing page: hero, features, how it works, pricing preview, FAQ, footer
+* [x] /pricing (shared with Module G)
+* [x] Terms of Service, Privacy Policy, Refund Policy (static)
+* [x] QR inactive/not-found/expired branded pages (Module E)
+* [x] SEO: meta tags, OG tags, sitemap.xml, robots.txt
 
 ---
 
@@ -714,7 +763,7 @@ App (auth):
 * Email verification routes
 
 Admin:
-* /admin/* (Filament)
+* /admin/* (Custom React + Inertia — dashboard, users, QR, billing, settings, audit)
 
 ---
 
@@ -762,20 +811,23 @@ Scheduler:
 * SubscriptionLifecycleJob (G5)
 * Billing emails
 
-## Week 5 — Admin + Abuse
-* Filament setup + all resources + widgets (Module H)
-* Abuse prevention complete (Module I)
-* Remaining emails (Module J)
-* Audit logging wired everywhere
+## Week 5 — Admin + Abuse ✅ DONE
+* [x] Custom React admin at `/admin/*` (replaced Filament, June 2026)
+* [x] Users, QR, plans, subscriptions, payments, abuse queue, settings, audit (Module H)
+* [x] Abuse queue + blocked domains + ban user from report
+* [x] Payment + grace emails (Module J — partial; welcome/renewal/frozen still pending)
+* [x] Audit logging on key actions (billing, QR, reports, impersonation)
+* [x] Permissions: `AdminUserPolicy`, impersonation, CSV exports, user 360° view
 
-## Week 6 — Polish + Launch
-* Public landing + legal pages (Module K)
-* Empty states, loading states, error pages (404/500/503)
-* Mobile responsive pass
-* Testing checklist (Section 8)
-* Docker production config + deploy to VPS
-* Backups (pg_dump daily cron), monitoring (uptime + Horizon)
-* Soft launch
+## Week 6 — Polish + Launch 🔄 IN PROGRESS
+* [x] Public landing page (Module K — hero, features, how-it-works, pricing preview, FAQ)
+* [x] Terms of Service, Privacy Policy, Refund Policy
+* [x] Error pages (404/500/503)
+* [x] robots.txt + sitemap.xml
+* [ ] Mobile responsive pass
+* [ ] Docker production config + deploy to VPS
+* [ ] Backups (pg_dump daily cron), monitoring
+* [ ] Soft launch
 
 ---
 

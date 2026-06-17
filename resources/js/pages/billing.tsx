@@ -12,15 +12,23 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import AppLayout from '@/layouts/app-layout';
-import { type BreadcrumbItem } from '@/types';
-import { Head, Link, router } from '@inertiajs/react';
-import { CreditCard, Info } from 'lucide-react';
+import { openRazorpayCheckout, type CheckoutData } from '@/lib/razorpay';
+import { type BreadcrumbItem, type SharedData } from '@/types';
+import { Head, Link, router, usePage } from '@inertiajs/react';
+import { CreditCard, Info, LoaderCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 interface Props {
     plan: { name: string; slug: string; is_free: boolean };
+    billing_discount_percent: number | null;
+    billing_note: string | null;
     subscription: {
         status: string;
         plan_name: string;
+        plan_slug: string;
+        gateway?: string;
+        renewal_type?: string;
+        is_complimentary?: boolean;
         starts_at: string | null;
         expires_at: string | null;
         cancelled_at: string | null;
@@ -34,6 +42,10 @@ interface Props {
         paid_at: string | null;
     }[];
     razorpayConfigured: boolean;
+    can_renew: boolean;
+    payments_enabled: boolean;
+    payments_disabled_message: string;
+    billing_mode: string;
 }
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Billing', href: '/billing' }];
@@ -47,8 +59,41 @@ const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'o
     expired: 'outline',
 };
 
-export default function Billing({ plan, subscription, payments, razorpayConfigured }: Props) {
-    const canCancel = subscription && ['active', 'grace'].includes(subscription.status);
+export default function Billing({
+    plan,
+    billing_discount_percent: pageDiscount,
+    subscription,
+    payments,
+    razorpayConfigured,
+    can_renew,
+    payments_enabled,
+    payments_disabled_message,
+}: Props) {
+    const { billing_discount_percent: sharedDiscount, auth, flash } = usePage<
+        SharedData & { flash: { checkout?: CheckoutData } }
+    >().props;
+    const billingDiscount = pageDiscount ?? sharedDiscount ?? auth.user?.billing_discount_percent ?? null;
+    const [renewing, setRenewing] = useState(false);
+
+    const canCancel =
+        subscription &&
+        subscription.renewal_type === 'autopay' &&
+        ['active', 'grace'].includes(subscription.status) &&
+        subscription.gateway !== 'manual';
+
+    useEffect(() => {
+        if (flash.checkout) {
+            void openRazorpayCheckout(flash.checkout, () => router.reload());
+            setRenewing(false);
+        }
+    }, [flash.checkout]);
+
+    const renew = (planSlug: string) => {
+        setRenewing(true);
+        router.post('/billing/subscribe', { plan: planSlug }, { onError: () => setRenewing(false) });
+    };
+
+    const renewPlanSlug = subscription?.plan_slug ?? (plan.is_free ? 'pro_monthly' : plan.slug);
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -63,12 +108,18 @@ export default function Billing({ plan, subscription, payments, razorpayConfigur
                     </Alert>
                 )}
 
+                {!payments_enabled && (
+                    <Alert>
+                        <Info className="size-4" />
+                        <AlertDescription>{payments_disabled_message}</AlertDescription>
+                    </Alert>
+                )}
+
                 {subscription?.status === 'grace' && (
                     <Alert variant="destructive">
                         <Info className="size-4" />
                         <AlertDescription>
-                            Your payment is overdue. Your Pro features will be locked after the grace period — your QR codes will
-                            keep working either way.
+                            Your plan has expired. Renew now to keep Pro features — your QR codes will keep working either way.
                         </AlertDescription>
                     </Alert>
                 )}
@@ -77,8 +128,30 @@ export default function Billing({ plan, subscription, payments, razorpayConfigur
                     <Alert variant="destructive">
                         <Info className="size-4" />
                         <AlertDescription>
-                            Your subscription is frozen. Dynamic QRs beyond the free limit are locked (still scannable). Re-subscribe
-                            to unlock everything.
+                            Your plan is frozen. Dynamic QRs beyond the free limit are locked (still scannable). Renew to unlock
+                            everything.
+                        </AlertDescription>
+                    </Alert>
+                )}
+
+                {subscription?.is_complimentary && (
+                    <Alert>
+                        <Info className="size-4" />
+                        <AlertDescription>
+                            You have complimentary Pro access until {subscription.expires_at}. No payment required.
+                        </AlertDescription>
+                    </Alert>
+                )}
+
+                {billingDiscount && billingDiscount > 0 && (
+                    <Alert>
+                        <Info className="size-4" />
+                        <AlertDescription>
+                            You have a {billingDiscount}% discount on paid plans. See discounted prices on{' '}
+                            <Link href="/pricing" className="underline">
+                                pricing
+                            </Link>
+                            .
                         </AlertDescription>
                     </Alert>
                 )}
@@ -93,11 +166,23 @@ export default function Billing({ plan, subscription, payments, razorpayConfigur
                         )}
                     </CardHeader>
                     <CardContent className="flex flex-col gap-3">
-                        <div className="flex items-baseline justify-between">
+                        <div className="flex items-baseline justify-between gap-3">
                             <p className="text-2xl font-semibold">{plan.name}</p>
                             {plan.is_free ? (
-                                <Button asChild>
-                                    <Link href="/pricing">Upgrade to Pro</Link>
+                                can_renew ? (
+                                    <Button onClick={() => renew('pro_monthly')} disabled={renewing}>
+                                        {renewing && <LoaderCircle className="size-4 animate-spin" />}
+                                        Upgrade to Pro
+                                    </Button>
+                                ) : (
+                                    <Button asChild variant={payments_enabled ? 'default' : 'outline'} disabled={!payments_enabled}>
+                                        <Link href="/pricing">View plans</Link>
+                                    </Button>
+                                )
+                            ) : can_renew ? (
+                                <Button onClick={() => renew(renewPlanSlug)} disabled={renewing}>
+                                    {renewing && <LoaderCircle className="size-4 animate-spin" />}
+                                    Renew plan
                                 </Button>
                             ) : (
                                 canCancel && (
@@ -128,11 +213,14 @@ export default function Billing({ plan, subscription, payments, razorpayConfigur
                             <div className="text-muted-foreground grid grid-cols-2 gap-2 text-sm">
                                 {subscription.starts_at && <span>Started: {subscription.starts_at}</span>}
                                 {subscription.expires_at && (
-                                    <span>
-                                        {subscription.status === 'cancelled' ? 'Access until' : 'Renews'}: {subscription.expires_at}
-                                    </span>
+                                    <span>Valid until: {subscription.expires_at}</span>
                                 )}
                             </div>
+                        )}
+                        {!plan.is_free && subscription?.renewal_type !== 'autopay' && (
+                            <p className="text-muted-foreground text-xs">
+                                Manual renewal — no autopay. Renew before expiry to keep Pro features uninterrupted.
+                            </p>
                         )}
                     </CardContent>
                 </Card>
@@ -156,9 +244,7 @@ export default function Billing({ plan, subscription, payments, razorpayConfigur
                                             <Badge variant={p.status === 'paid' ? 'default' : p.status === 'failed' ? 'destructive' : 'secondary'}>
                                                 {p.status}
                                             </Badge>
-                                            <span className="font-medium">
-                                                ₹{p.amount.toLocaleString('en-IN')}
-                                            </span>
+                                            <span className="font-medium">₹{p.amount.toLocaleString('en-IN')}</span>
                                         </div>
                                     </div>
                                 ))}

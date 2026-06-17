@@ -65,6 +65,7 @@ class QrCodeController extends Controller
         return Inertia::render('qr/index', [
             'qrCodes' => $qrCodes,
             'filters' => $request->only(['search', 'type', 'status', 'dynamic']),
+            'email_verified' => $request->user()->hasVerifiedEmail(),
         ]);
     }
 

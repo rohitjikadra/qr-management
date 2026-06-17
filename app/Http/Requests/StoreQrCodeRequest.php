@@ -77,12 +77,24 @@ class StoreQrCodeRequest extends FormRequest
     {
         return [
             function (Validator $validator) {
-                if ($validator->errors()->isNotEmpty() || ! $this->boolean('is_dynamic')) {
+                if ($validator->errors()->isNotEmpty()) {
+                    return;
+                }
+
+                if (! $this->user()->hasVerifiedEmail()) {
+                    $validator->errors()->add(
+                        'email',
+                        'Please verify your email before creating QR codes.',
+                    );
+
+                    return;
+                }
+
+                if (! $this->boolean('is_dynamic')) {
                     return;
                 }
 
                 $type = QrType::from((string) $this->input('type'));
-                $user = $this->user();
 
                 if (! $type->supportsDynamic()) {
                     $validator->errors()->add('is_dynamic', 'This QR type does not support dynamic mode.');
@@ -90,13 +102,7 @@ class StoreQrCodeRequest extends FormRequest
                     return;
                 }
 
-                if (! $user->hasVerifiedEmail()) {
-                    $validator->errors()->add('is_dynamic', 'Please verify your email before creating dynamic QR codes.');
-
-                    return;
-                }
-
-                if (! app(PlanLimitService::class)->canCreateDynamicQr($user)) {
+                if (! app(PlanLimitService::class)->canCreateDynamicQr($this->user())) {
                     $validator->errors()->add('is_dynamic', 'You have reached your dynamic QR limit. Upgrade to Pro for unlimited dynamic QRs.');
                 }
             },

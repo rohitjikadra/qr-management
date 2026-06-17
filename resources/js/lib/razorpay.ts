@@ -1,8 +1,12 @@
 export interface CheckoutData {
-    gateway_subscription_id: string;
+    checkout_type: 'order' | 'subscription';
     razorpay_key: string;
     name: string;
     prefill: { name: string; email: string };
+    order_id?: string;
+    gateway_subscription_id?: string;
+    amount?: number;
+    currency?: string;
 }
 
 declare global {
@@ -30,13 +34,20 @@ function loadCheckoutScript(): Promise<void> {
 export async function openRazorpayCheckout(checkout: CheckoutData, onSuccess: () => void): Promise<void> {
     await loadCheckoutScript();
 
-    new window.Razorpay!({
+    const options: Record<string, unknown> = {
         key: checkout.razorpay_key,
-        subscription_id: checkout.gateway_subscription_id,
         name: checkout.name,
-        description: 'Pro subscription',
+        description: checkout.checkout_type === 'order' ? 'Pro plan renewal' : 'Pro subscription',
         prefill: checkout.prefill,
         theme: { color: '#18181b' },
         handler: onSuccess,
-    }).open();
+    };
+
+    if (checkout.checkout_type === 'order' && checkout.order_id) {
+        options.order_id = checkout.order_id;
+    } else if (checkout.gateway_subscription_id) {
+        options.subscription_id = checkout.gateway_subscription_id;
+    }
+
+    new window.Razorpay!(options).open();
 }

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\RenewalType;
 use App\Enums\SubscriptionStatus;
 use App\Jobs\SubscriptionLifecycleJob;
 use App\Models\Payment;
@@ -33,8 +34,17 @@ class BillingTest extends TestCase
             'user_id' => $user->id,
             'plan_id' => Plan::where('slug', 'pro_monthly')->first()->id,
             'gateway' => 'razorpay',
-            'gateway_subscription_id' => 'sub_test123',
+            'renewal_type' => RenewalType::Manual,
+            'gateway_subscription_id' => 'order_test123',
             'status' => $status,
+        ], $attributes));
+    }
+
+    private function makeAutopaySubscription(User $user, string $status = 'pending', array $attributes = []): Subscription
+    {
+        return $this->makeSubscription($user, $status, array_merge([
+            'renewal_type' => RenewalType::Autopay,
+            'gateway_subscription_id' => 'sub_test123',
         ], $attributes));
     }
 
@@ -62,7 +72,7 @@ class BillingTest extends TestCase
     public function test_webhook_is_idempotent_per_event_id(): void
     {
         $user = User::factory()->create();
-        $this->makeSubscription($user);
+        $this->makeAutopaySubscription($user);
 
         $payload = [
             'event' => 'subscription.activated',
@@ -76,7 +86,7 @@ class BillingTest extends TestCase
     public function test_subscription_activated_webhook_activates_subscription(): void
     {
         $user = User::factory()->create();
-        $subscription = $this->makeSubscription($user);
+        $subscription = $this->makeAutopaySubscription($user);
 
         $this->postWebhook([
             'event' => 'subscription.activated',
@@ -92,7 +102,7 @@ class BillingTest extends TestCase
     public function test_subscription_charged_records_payment_with_invoice(): void
     {
         $user = User::factory()->create();
-        $subscription = $this->makeSubscription($user, 'active', ['expires_at' => now()->addDay()]);
+        $subscription = $this->makeAutopaySubscription($user, 'active', ['expires_at' => now()->addDay()]);
 
         $this->postWebhook([
             'event' => 'subscription.charged',
@@ -115,7 +125,7 @@ class BillingTest extends TestCase
     public function test_duplicate_charge_does_not_create_two_payments(): void
     {
         $user = User::factory()->create();
-        $this->makeSubscription($user, 'active', ['expires_at' => now()->addDay()]);
+        $this->makeAutopaySubscription($user, 'active', ['expires_at' => now()->addDay()]);
 
         $payload = [
             'event' => 'subscription.charged',
@@ -134,7 +144,7 @@ class BillingTest extends TestCase
     public function test_payment_failed_webhook_records_failed_payment(): void
     {
         $user = User::factory()->create();
-        $this->makeSubscription($user, 'active');
+        $this->makeAutopaySubscription($user, 'active');
 
         $this->postWebhook([
             'event' => 'payment.failed',
@@ -189,7 +199,7 @@ class BillingTest extends TestCase
     public function test_successful_charge_unfreezes_qrs(): void
     {
         $user = User::factory()->create();
-        $this->makeSubscription($user, 'frozen', ['expires_at' => now()->subDays(10)]);
+        $subscription = $this->makeSubscription($user, 'frozen', ['expires_at' => now()->subDays(10)]);
 
         $qr = $user->qrCodes()->create([
             'name' => 'Frozen QR',
@@ -203,37 +213,68 @@ class BillingTest extends TestCase
         $qr->forceFill(['frozen' => true])->save();
 
         $this->postWebhook([
-            'event' => 'subscription.charged',
+            'event' => 'payment.captured',
             'payload' => [
-                'subscription' => ['entity' => ['id' => 'sub_test123']],
-                'payment' => ['entity' => ['id' => 'pay_renew', 'amount' => 24900, 'currency' => 'INR']],
+                'payment' => ['entity' => [
+                    'id' => 'pay_renew',
+                    'order_id' => 'order_test123',
+                    'amount' => 24900,
+                    'currency' => 'INR',
+                    'notes' => ['subscription_id' => (string) $subscription->id],
+                ]],
             ],
         ]);
 
         $this->assertFalse($qr->refresh()->frozen);
     }
 
-    public function test_subscribe_creates_pending_subscription_and_returns_checkout(): void
+    public function test_payment_captured_activates_pending_manual_subscription(): void
+    {
+        $user = User::factory()->create();
+        $subscription = $this->makeSubscription($user, 'pending');
+
+        $this->postWebhook([
+            'event' => 'payment.captured',
+            'payload' => [
+                'payment' => ['entity' => [
+                    'id' => 'pay_manual1',
+                    'order_id' => 'order_test123',
+                    'amount' => 24900,
+                    'currency' => 'INR',
+                ]],
+            ],
+        ])->assertOk();
+
+        $subscription->refresh();
+        $this->assertSame(SubscriptionStatus::Active, $subscription->status);
+        $this->assertNotNull($subscription->expires_at);
+        $this->assertNotNull(Payment::where('gateway_payment_id', 'pay_manual1')->first());
+    }
+
+    public function test_subscribe_creates_pending_subscription_and_returns_order_checkout(): void
     {
         $user = User::factory()->create();
 
         $this->mock(RazorpayGateway::class, function (MockInterface $mock) {
             $mock->shouldReceive('isConfigured')->andReturn(true);
-            $mock->shouldReceive('createSubscription')->once()->andReturn('sub_new456');
+            $mock->shouldReceive('createOrder')->once()->andReturn('order_new456');
         });
 
         $response = $this->actingAs($user)->post('/billing/subscribe', ['plan' => 'pro_monthly']);
 
-        $response->assertSessionHas('checkout');
-        $subscription = Subscription::where('gateway_subscription_id', 'sub_new456')->first();
+        $response->assertSessionHas('checkout', fn ($checkout) => $checkout['checkout_type'] === 'order'
+            && $checkout['order_id'] === 'order_new456');
+
+        $subscription = Subscription::where('gateway_subscription_id', 'order_new456')->first();
         $this->assertNotNull($subscription);
         $this->assertSame(SubscriptionStatus::Pending, $subscription->status);
+        $this->assertSame(RenewalType::Manual, $subscription->renewal_type);
     }
 
-    public function test_cancel_marks_subscription_cancelled(): void
+    public function test_cancel_marks_subscription_cancelled_for_autopay_only(): void
     {
         $user = User::factory()->create();
-        $subscription = $this->makeSubscription($user, 'active', ['expires_at' => now()->addMonth()]);
+        $subscription = $this->makeAutopaySubscription($user, 'active', ['expires_at' => now()->addMonth()]);
 
         $this->mock(RazorpayGateway::class, function (MockInterface $mock) {
             $mock->shouldReceive('isConfigured')->andReturn(true);
@@ -247,9 +288,63 @@ class BillingTest extends TestCase
         $this->assertNotNull($subscription->cancelled_at);
     }
 
-    public function test_pricing_page_renders(): void
+    public function test_cancel_rejected_for_manual_renewal(): void
     {
-        $this->get('/pricing')->assertOk();
+        $user = User::factory()->create();
+        $this->makeSubscription($user, 'active', ['expires_at' => now()->addMonth()]);
+
+        $this->actingAs($user)->post('/billing/cancel')->assertStatus(422);
+    }
+
+    public function test_pricing_page_renders_for_guests(): void
+    {
+        $this->get('/pricing')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('pricing')
+                ->has('plans', 3)
+                ->where('currentPlan', null)
+                ->where('billing_discount_percent', null)
+            );
+    }
+
+    public function test_pricing_page_shows_discount_for_user_with_billing_discount(): void
+    {
+        $user = User::factory()->create(['billing_discount_percent' => 50]);
+        $proMonthly = Plan::where('slug', 'pro_monthly')->firstOrFail();
+
+        $this->actingAs($user)
+            ->get('/pricing')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('pricing')
+                ->where('billing_discount_percent', 50)
+                ->where('plans', function ($plans) use ($proMonthly, $user): bool {
+                    $pro = collect($plans)->firstWhere('slug', 'pro_monthly');
+
+                    return $pro['has_discount'] === true
+                        && $pro['discounted_price'] === $user->discountedPriceFor($proMonthly)
+                        && $pro['discounted_price'] < $pro['price'];
+                })
+            );
+    }
+
+    public function test_home_page_shows_discount_for_user_with_billing_discount(): void
+    {
+        $user = User::factory()->create(['billing_discount_percent' => 50]);
+
+        $this->actingAs($user)
+            ->get('/')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('welcome')
+                ->where('billing_discount_percent', 50)
+                ->where('plans', function ($plans): bool {
+                    $pro = collect($plans)->firstWhere('slug', 'pro_monthly');
+
+                    return $pro['has_discount'] === true && $pro['discounted_price'] < $pro['price'];
+                })
+            );
     }
 
     public function test_billing_page_renders(): void

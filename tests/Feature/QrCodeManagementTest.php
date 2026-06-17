@@ -88,18 +88,42 @@ class QrCodeManagementTest extends TestCase
         $this->assertSame(2, QrCode::where('is_dynamic', true)->count());
     }
 
-    public function test_unverified_user_cannot_create_dynamic_qr(): void
+    public function test_unverified_user_cannot_create_any_qr(): void
     {
         $user = User::factory()->unverified()->create();
 
-        $response = $this->actingAs($user)->post('/qr', [
+        $static = $this->actingAs($user)->post('/qr', [
+            'name' => 'Static QR',
+            'type' => 'url',
+            'is_dynamic' => false,
+            'content' => ['url' => 'https://example.com'],
+        ]);
+
+        $static->assertSessionHasErrors('email');
+        $this->assertSame(0, QrCode::count());
+
+        $dynamic = $this->actingAs($user)->post('/qr', [
             'name' => 'Dynamic',
             'type' => 'url',
             'is_dynamic' => true,
             'content' => ['url' => 'https://example.com'],
         ]);
 
-        $response->assertSessionHasErrors('is_dynamic');
+        $dynamic->assertSessionHasErrors('email');
+        $this->assertSame(0, QrCode::count());
+    }
+
+    public function test_unverified_user_sees_verification_notice_on_create_page(): void
+    {
+        $user = User::factory()->unverified()->create();
+
+        $this->actingAs($user)
+            ->get('/qr/create')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('qr/create')
+                ->where('limits.email_verified', false)
+            );
     }
 
     public function test_static_only_type_cannot_be_dynamic(): void

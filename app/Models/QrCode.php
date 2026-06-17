@@ -25,6 +25,7 @@ class QrCode extends Model
         'destination_url',
         'is_dynamic',
         'status',
+        'admin_locked',
         'design_options',
         'expires_at',
     ];

@@ -2,10 +2,11 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { EmailVerificationRequiredAlert } from '@/components/email-verification-required-alert';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem, type SharedData } from '@/types';
 import { Head, Link, usePage } from '@inertiajs/react';
-import { Activity, MailWarning, Plus, QrCode as QrCodeIcon, ScanLine, TrendingUp } from 'lucide-react';
+import { Activity, Plus, QrCode as QrCodeIcon, ScanLine, TrendingUp, Info } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 
 interface DashboardProps {
@@ -34,8 +35,9 @@ interface DashboardProps {
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Dashboard', href: '/dashboard' }];
 
 export default function Dashboard({ stats, plan, recentQrs }: DashboardProps) {
-    const { auth } = usePage<SharedData>().props;
+    const { auth, billing_discount_percent } = usePage<SharedData>().props;
     const verified = Boolean(auth.user.email_verified_at);
+    const billingDiscount = billing_discount_percent ?? auth.user?.billing_discount_percent ?? null;
 
     const scanLimitPct =
         plan.is_free && plan.scans_per_month > 0
@@ -53,13 +55,15 @@ export default function Dashboard({ stats, plan, recentQrs }: DashboardProps) {
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Dashboard" />
             <div className="flex h-full flex-1 flex-col gap-4 p-4">
-                {!verified && (
+                {!verified && <EmailVerificationRequiredAlert />}
+
+                {billingDiscount && billingDiscount > 0 && (
                     <Alert>
-                        <MailWarning className="size-4" />
+                        <Info className="size-4" />
                         <AlertDescription>
-                            Verify your email to unlock <strong>dynamic QR codes</strong> with editing and scan tracking.{' '}
-                            <Link href="/verify-email" className="underline">
-                                Resend verification email
+                            You have a {billingDiscount}% discount on Pro plans.{' '}
+                            <Link href="/pricing" className="underline">
+                                View discounted pricing
                             </Link>
                         </AlertDescription>
                     </Alert>
@@ -76,11 +80,17 @@ export default function Dashboard({ stats, plan, recentQrs }: DashboardProps) {
                                 <Link href="/billing">Upgrade to Pro</Link>
                             </Button>
                         )}
-                        <Button asChild>
-                            <Link href="/qr/create">
-                                <Plus className="size-4" /> Create QR
-                            </Link>
-                        </Button>
+                        {verified ? (
+                            <Button asChild>
+                                <Link href="/qr/create">
+                                    <Plus className="size-4" /> Create QR
+                                </Link>
+                            </Button>
+                        ) : (
+                            <Button asChild variant="outline">
+                                <Link href="/verify-email">Verify email to create QR</Link>
+                            </Button>
+                        )}
                     </div>
                 </div>
 
@@ -137,11 +147,17 @@ export default function Dashboard({ stats, plan, recentQrs }: DashboardProps) {
                                 <QrCodeIcon className="text-muted-foreground size-10" />
                                 <p className="font-medium">No QR codes yet</p>
                                 <p className="text-muted-foreground text-sm">Create your first QR code and start sharing.</p>
-                                <Button asChild>
-                                    <Link href="/qr/create">
-                                        <Plus className="size-4" /> Create your first QR
-                                    </Link>
-                                </Button>
+                                {verified ? (
+                                    <Button asChild>
+                                        <Link href="/qr/create">
+                                            <Plus className="size-4" /> Create your first QR
+                                        </Link>
+                                    </Button>
+                                ) : (
+                                    <Button asChild variant="outline">
+                                        <Link href="/verify-email">Verify email to create QR</Link>
+                                    </Button>
+                                )}
                             </div>
                         ) : (
                             <div className="flex flex-col divide-y">

@@ -49,6 +49,14 @@ class LoginRequest extends FormRequest
             ]);
         }
 
+        if (Auth::user()?->isBanned()) {
+            Auth::guard('web')->logout();
+
+            throw ValidationException::withMessages([
+                'email' => 'Your account has been suspended. Please contact support if you believe this is a mistake.',
+            ]);
+        }
+
         RateLimiter::clear($this->throttleKey());
     }
 

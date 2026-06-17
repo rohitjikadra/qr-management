@@ -14,6 +14,45 @@ class SubscriptionService
     public const GRACE_DAYS = 7;
 
     /**
+     * Fulfill a manual one-time order payment (first purchase or renewal).
+     */
+    public function fulfillManualOrderPayment(Subscription $subscription, array $paymentData): Payment
+    {
+        $payment = Payment::firstOrCreate(
+            ['gateway_payment_id' => $paymentData['id']],
+            [
+                'user_id' => $subscription->user_id,
+                'subscription_id' => $subscription->id,
+                'gateway' => 'razorpay',
+                'gateway_order_id' => $paymentData['order_id'] ?? null,
+                'invoice_number' => $this->nextInvoiceNumber(),
+                'amount' => ($paymentData['amount'] ?? 0) / 100,
+                'currency' => $paymentData['currency'] ?? 'INR',
+                'status' => 'paid',
+                'meta' => $paymentData,
+                'paid_at' => now(),
+            ]
+        );
+
+        if ($subscription->status === SubscriptionStatus::Pending) {
+            $this->activate($subscription);
+        } else {
+            $base = $subscription->expires_at?->isFuture() ? $subscription->expires_at : now();
+
+            $subscription->update([
+                'status' => SubscriptionStatus::Active,
+                'starts_at' => $subscription->starts_at ?? now(),
+                'expires_at' => $this->nextExpiry($subscription->plan, $base),
+                'cancelled_at' => null,
+            ]);
+
+            $this->unfreezeQrs($subscription->user);
+        }
+
+        return $payment;
+    }
+
+    /**
      * Called when the gateway confirms activation (webhook only).
      */
     public function activate(Subscription $subscription): void
